@@ -1,13 +1,9 @@
 import { NextResponse } from 'next/server';
-import {
-  getPublicShopSettings,
-  readPersistedSettings,
-  savePersistedSettings,
-} from '@/lib/shop-settings';
+import { resolvePublicShopSettings, saveManualShopEnabled } from '@/lib/shop-settings';
 
 export async function GET() {
   try {
-    const publicSettings = getPublicShopSettings();
+    const publicSettings = await resolvePublicShopSettings();
     return NextResponse.json(publicSettings);
   } catch (error) {
     console.error('Failed to read settings:', error);
@@ -38,10 +34,9 @@ export async function POST(request: Request) {
       );
     }
 
-    const current = readPersistedSettings();
-    savePersistedSettings({ ...current, shopEnabled: manualShopEnabled });
+    await saveManualShopEnabled(manualShopEnabled);
 
-    return NextResponse.json(getPublicShopSettings());
+    return NextResponse.json(await resolvePublicShopSettings());
   } catch (error) {
     console.error('Failed to update settings:', error);
     return NextResponse.json(

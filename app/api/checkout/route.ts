@@ -1,11 +1,11 @@
 import { NextResponse } from 'next/server';
-import { stripe, formatAmountForStripe } from '@/lib/stripe';
+import { getStripe, formatAmountForStripe } from '@/lib/stripe';
 import { CartItem } from '@/lib/types';
-import { getPublicShopSettings } from '@/lib/shop-settings';
+import { resolvePublicShopSettings } from '@/lib/shop-settings';
 
 export async function POST(request: Request) {
   try {
-    const { shopEnabled } = getPublicShopSettings();
+    const { shopEnabled } = await resolvePublicShopSettings();
     if (!shopEnabled) {
       return NextResponse.json(
         { error: 'The shop is currently closed' },
@@ -14,6 +14,14 @@ export async function POST(request: Request) {
     }
 
     const { items, customerEmail } = await request.json();
+    const siteUrl = process.env.NEXT_PUBLIC_SITE_URL;
+
+    if (!siteUrl) {
+      return NextResponse.json(
+        { error: 'Missing NEXT_PUBLIC_SITE_URL' },
+        { status: 500 }
+      );
+    }
 
     if (!items || items.length === 0) {
       return NextResponse.json(
@@ -41,8 +49,8 @@ export async function POST(request: Request) {
           product_data: {
             name: item.product.name,
             description: description.substring(0, 500),
-            images: item.product.images.map(img => 
-              img.startsWith('http') ? img : `${process.env.NEXT_PUBLIC_SITE_URL}${img}`
+            images: item.product.images.map(img =>
+              img.startsWith('http') ? img : `${siteUrl}${img}`
             ),
           },
           unit_amount: formatAmountForStripe(item.price),
@@ -50,6 +58,8 @@ export async function POST(request: Request) {
         quantity: item.quantity,
       };
     });
+
+    const stripe = getStripe();
 
     const session = await stripe.checkout.sessions.create({
       mode: 'payment',
@@ -105,8 +115,8 @@ export async function POST(request: Request) {
             },
           ]
         : undefined,
-      success_url: `${process.env.NEXT_PUBLIC_SITE_URL}/success?session_id={CHECKOUT_SESSION_ID}`,
-      cancel_url: `${process.env.NEXT_PUBLIC_SITE_URL}/checkout`,
+      success_url: `${siteUrl}/success?session_id={CHECKOUT_SESSION_ID}`,
+      cancel_url: `${siteUrl}/checkout`,
       metadata: {
         items: JSON.stringify(items.map((item: CartItem) => ({
           productId: item.product.id,

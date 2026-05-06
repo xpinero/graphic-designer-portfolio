@@ -43,10 +43,14 @@
   }
 }
 
-* {
-  box-sizing: border-box;
-  margin: 0;
-  padding: 0;
+/* Must live inside @layer base so Tailwind utilities (mx-auto, px-*, etc.) win.
+   Unlayered rules override @layer utilities and were breaking horizontal centering. */
+@layer base {
+  * {
+    box-sizing: border-box;
+    margin: 0;
+    padding: 0;
+  }
 }
 
 body {
@@ -60,4 +64,5 @@ body {
 
 html {
   scroll-behavior: smooth;
+  scrollbar-gutter: stable;
 }

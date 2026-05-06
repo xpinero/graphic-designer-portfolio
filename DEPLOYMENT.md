@@ -42,11 +42,30 @@ Vercel is the easiest way to deploy Next.js applications and is completely free 
 
 ## Environment Variables
 
-If you configure email services later, add these in your deployment platform:
+Add these in your deployment platform before deploying:
 
-- `RESEND_API_KEY` - For Resend email service
-- `SENDGRID_API_KEY` - For SendGrid email service
-- Other API keys as needed
+- `STRIPE_SECRET_KEY` - Required for checkout and order API routes
+- `STRIPE_WEBHOOK_SECRET` - Required for Stripe webhook verification
+- `NEXT_PUBLIC_SITE_URL` - Public base URL (for example `https://your-site.vercel.app`)
+- `ADMIN_PASSWORD` - Required for protected shop settings updates
+- `RESEND_API_KEY` - Optional, for Resend email service
+- `SENDGRID_API_KEY` - Optional, for SendGrid email service
+- `HEALTH_CHECK_SECRET` - Shared secret for the private `/api/health` endpoint (generate a long random string)
+
+## Post-deploy health check
+
+The `/api/health` route is **private**: without `HEALTH_CHECK_SECRET` set in Vercel it responds with **404** and no deployment details. After you set `HEALTH_CHECK_SECRET`, call it with a Bearer token (values are never returned in the JSON, only configured/missing names).
+
+Example:
+
+```bash
+curl -sS -H "Authorization: Bearer YOUR_HEALTH_CHECK_SECRET" \
+  "https://your-project.vercel.app/api/health"
+```
+
+- HTTP **200** with `"ok": true` means all required environment variables are set.
+- HTTP **503** with `"missingRequired"` lists required variable names that are unset or blank in that deployment.
+- HTTP **401** means the secret header was missing or wrong.
 
 ## Pre-Deployment Checklist
 

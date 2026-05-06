@@ -1,15 +1,20 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { products } from '@/lib/products';
+import Link from 'next/link';
 import { Package, DollarSign, ShoppingBag, TrendingUp, Power } from 'lucide-react';
 import { useSettingsStore } from '@/lib/store/settings';
 import toast from 'react-hot-toast';
+import type { Product } from '@/lib/types';
+import { adminHeaders } from '@/lib/admin-fetch';
+
+const ADMIN_PW_KEY = 'admin_password';
 
 export default function AdminPage() {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
-  const [password, setPassword] = useState('');
+  const [passwordInput, setPasswordInput] = useState('');
   const [storedPassword, setStoredPassword] = useState('');
+  const [dashboardProducts, setDashboardProducts] = useState<Product[]>([]);
   const {
     shopEnabled,
     manualShopEnabled,
@@ -18,24 +23,51 @@ export default function AdminPage() {
     fetchSettings,
   } = useSettingsStore();
 
-  const handleLogin = (e: React.FormEvent) => {
+  const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (password === 'admin123') {
+    try {
+      const res = await fetch('/api/admin/verify', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ password: passwordInput }),
+      });
+      if (!res.ok) {
+        toast.error('Incorrect password');
+        return;
+      }
+      sessionStorage.setItem(ADMIN_PW_KEY, passwordInput);
+      setStoredPassword(passwordInput);
       setIsAuthenticated(true);
-      setStoredPassword(password);
-      sessionStorage.setItem('admin_auth', 'true');
-    } else {
-      alert('Incorrect password');
+      toast.success('Signed in');
+    } catch {
+      toast.error('Login failed');
     }
   };
 
   useEffect(() => {
-    if (sessionStorage.getItem('admin_auth') === 'true') {
+    const saved = sessionStorage.getItem(ADMIN_PW_KEY);
+    if (saved) {
+      setStoredPassword(saved);
       setIsAuthenticated(true);
-      setStoredPassword('admin123');
     }
     fetchSettings();
   }, [fetchSettings]);
+
+  useEffect(() => {
+    if (!isAuthenticated || !storedPassword) return;
+    (async () => {
+      try {
+        const res = await fetch('/api/admin/products', {
+          headers: adminHeaders(storedPassword),
+        });
+        if (res.ok) {
+          setDashboardProducts(await res.json());
+        }
+      } catch {
+        /* ignore */
+      }
+    })();
+  }, [isAuthenticated, storedPassword]);
 
   if (!isAuthenticated) {
     return (
@@ -49,10 +81,10 @@ export default function AdminPage() {
             <input
               id="password"
               type="password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
+              value={passwordInput}
+              onChange={(e) => setPasswordInput(e.target.value)}
               className="w-full px-4 py-3 rounded-lg border border-border bg-background text-foreground focus:outline-none focus:ring-2 focus:ring-accent focus:border-transparent mb-4"
-              placeholder="Enter admin password"
+              placeholder="Same as ADMIN_PASSWORD in .env"
             />
             <button
               type="submit"
@@ -61,7 +93,7 @@ export default function AdminPage() {
               Login
             </button>
             <p className="text-xs text-foreground/60 mt-4 text-center">
-              Default password: admin123
+              Use the value of <code className="text-xs">ADMIN_PASSWORD</code> from your environment.
             </p>
           </form>
         </div>
@@ -69,10 +101,12 @@ export default function AdminPage() {
     );
   }
 
-  const totalProducts = products.length;
-  const totalValue = products.reduce((sum, p) => sum + p.price, 0);
-  const inStock = products.filter(p => p.inventory === undefined || p.inventory > 0).length;
-  const featured = products.filter(p => p.featured).length;
+  const totalProducts = dashboardProducts.length;
+  const totalValue = dashboardProducts.reduce((sum, p) => sum + p.price, 0);
+  const inStock = dashboardProducts.filter(
+    (p) => p.inventory === undefined || p.inventory > 0
+  ).length;
+  const featured = dashboardProducts.filter((p) => p.featured).length;
 
   const handleToggleShop = async () => {
     const success = await toggleShop(storedPassword);
@@ -91,7 +125,8 @@ export default function AdminPage() {
           <button
             onClick={() => {
               setIsAuthenticated(false);
-              sessionStorage.removeItem('admin_auth');
+              sessionStorage.removeItem(ADMIN_PW_KEY);
+              setStoredPassword('');
             }}
             className="text-foreground/70 hover:text-foreground transition-colors"
           >
@@ -121,7 +156,8 @@ export default function AdminPage() {
                   : 'Not in scheduled closure window'}
               </p>
               <p className="text-foreground/50 text-xs mt-2">
-                Every Friday 4:00 PM ET the shop closes automatically until Saturday 11:00 PM ET, for all browsers. Manual toggle still applies outside that window.
+                Every Friday 4:00 PM ET the shop closes automatically until Saturday 11:00 PM ET, for
+                all browsers. Manual toggle still applies outside that window.
               </p>
             </div>
             <button
@@ -171,8 +207,8 @@ export default function AdminPage() {
           </div>
         </div>
 
-        <div className="bg-muted rounded-lg p-6">
-          <h2 className="text-xl font-semibold text-foreground mb-4">Products</h2>
+        <div className="bg-muted rounded-lg p-6 mb-8">
+          <h2 className="text-xl font-semibold text-foreground mb-4">Products snapshot</h2>
           <div className="overflow-x-auto">
             <table className="w-full">
               <thead>
@@ -185,7 +221,7 @@ export default function AdminPage() {
                 </tr>
               </thead>
               <tbody>
-                {products.map((product) => (
+                {dashboardProducts.map((product) => (
                   <tr key={product.id} className="border-b border-border last:border-0">
                     <td className="py-3 px-4 text-sm text-foreground">{product.name}</td>
                     <td className="py-3 px-4 text-sm text-foreground/70 capitalize">{product.category}</td>
@@ -204,17 +240,21 @@ export default function AdminPage() {
                 ))}
               </tbody>
             </table>
+            {dashboardProducts.length === 0 && (
+              <p className="text-sm text-foreground/60 py-4">
+                No products from API (configure Supabase and run{' '}
+                <code className="text-xs">npm run seed:supabase</code>).
+              </p>
+            )}
           </div>
         </div>
 
-        <div className="mt-8 bg-muted rounded-lg p-6">
+        <div className="bg-muted rounded-lg p-6">
           <h2 className="text-xl font-semibold text-foreground mb-4">Quick Actions</h2>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             <div className="p-4 border border-border rounded-lg">
               <h3 className="font-medium text-foreground mb-2">Stripe Dashboard</h3>
-              <p className="text-sm text-foreground/70 mb-3">
-                View payments and manage transactions
-              </p>
+              <p className="text-sm text-foreground/70 mb-3">View payments and manage transactions</p>
               <a
                 href="https://dashboard.stripe.com"
                 target="_blank"
@@ -226,19 +266,19 @@ export default function AdminPage() {
             </div>
 
             <div className="p-4 border border-border rounded-lg">
-              <h3 className="font-medium text-foreground mb-2">Product Management</h3>
-              <p className="text-sm text-foreground/70 mb-3">
-                Edit products in lib/products.ts
-              </p>
-              <span className="text-foreground/50 text-sm">Coming soon</span>
+              <h3 className="font-medium text-foreground mb-2">Product management</h3>
+              <p className="text-sm text-foreground/70 mb-3">Create, edit, delete products and upload images</p>
+              <Link href="/admin/products" className="text-accent hover:text-accent-light text-sm font-medium">
+                Open products →
+              </Link>
             </div>
 
             <div className="p-4 border border-border rounded-lg">
-              <h3 className="font-medium text-foreground mb-2">Order History</h3>
-              <p className="text-sm text-foreground/70 mb-3">
-                View all orders and customer details
-              </p>
-              <span className="text-foreground/50 text-sm">Coming soon</span>
+              <h3 className="font-medium text-foreground mb-2">Order history</h3>
+              <p className="text-sm text-foreground/70 mb-3">View orders and update fulfillment status</p>
+              <Link href="/admin/orders" className="text-accent hover:text-accent-light text-sm font-medium">
+                Open orders →
+              </Link>
             </div>
           </div>
         </div>

@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
-import { products, categories } from '@/lib/products';
+import { categories } from '@/lib/products';
 import ProductCard from '@/components/ProductCard';
 import ProductModal from '@/components/ProductModal';
 import AnimatedSection from '@/components/AnimatedSection';
@@ -29,6 +29,27 @@ export default function ShopPage() {
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [sortBy, setSortBy] = useState<'newest' | 'price-low' | 'price-high'>('newest');
+  const [products, setProducts] = useState<Product[]>([]);
+  const [productsLoading, setProductsLoading] = useState(true);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch('/api/products', { cache: 'no-store' });
+        if (!res.ok) throw new Error('Failed to load products');
+        const data = (await res.json()) as Product[];
+        if (!cancelled) setProducts(data);
+      } catch {
+        if (!cancelled) setProducts([]);
+      } finally {
+        if (!cancelled) setProductsLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const filteredProducts = products
     .filter((product) => {
@@ -48,6 +69,14 @@ export default function ShopPage() {
 
   if (isLoading || !shopEnabled) {
     return null;
+  }
+
+  if (productsLoading) {
+    return (
+      <div className="min-h-[40vh] flex items-center justify-center py-20">
+        <p className="text-foreground/60">Loading products…</p>
+      </div>
+    );
   }
 
   return (
